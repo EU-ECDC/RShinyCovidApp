@@ -10,6 +10,8 @@ source("function_server.R")
 shinyServer(function(input, output) {
     # Create empty reactivevalues object
     rv <- reactiveValues()
+    rv$new_country <- 1
+    rv$new_country2 <- 1
     
     ## Observe Events in Forecasts tab
     # If country entry changes in the Forecasts tab, change rv$list_output, rv$region, 
@@ -17,6 +19,7 @@ shinyServer(function(input, output) {
     observeEvent(input$country,{
         # Set rv$selected to NULL (may be changed later by clicking on the map)
         rv$selected <- NULL
+        rv$new_country <- 1
         if(input$country == 1){
             # If country is France, update region, country and list_output
             rv$list_output <- list_output_FR
@@ -35,27 +38,61 @@ shinyServer(function(input, output) {
             rv$age <- 0
             shinyjs::disable(id = "age")
         }
+        if(input$type == 2){
+          # Deactivate the "nuts" checkbox, and set it to "nuts 2 (coarse)", since 
+          # nuts3 death data is not available
+          updateRadioButtons(inputId = "nuts", selected = 1)
+          rv$nuts <- 1
+          shinyjs::disable(id = "nuts")              
+        } else{
+          # otherwise activate the "nuts" button
+          shinyjs::enable(id = "nuts")
+        }
+        
         if(input$country != 3){
             # If the selected country is not Italy, activate the "age" checkbox
             shinyjs::enable(id = "age")
         }
-        # Define condition1, which in this tab corresponds to the date of prediction
-        rv$condition1 <- as.numeric(max(rv$list_output$pred$conditions)) - input$prev * 7
+        # Define condition1, which corresponds to the date of prediction in this tab
+        rv$condition1 <- max(as.numeric(rv$list_output$pred$conditions)) - input$prev * 7
+        # Define the variables map and max_obs
         rv$map <- rv$list_output$map[rv$list_output$map$LEVL_CODE == 3,]
+        rv$max_obs <- as.Date(max(epoch(rv$list_output$obs)), origin = "1970-01-01")
+        # Add data_death to list_output$obs
+        rv$list_output$obs <- list(rv$list_output$obs, rv$list_output$data_death)
+    })
+    
+    # If type changes, update nuts
+    observeEvent(input$type, {
+      if(input$type == 2){
+        # Deactivate the "nuts" checkbox, and set it to "nuts 2 (coarse)", since 
+        # nuts3 death data is not available in Italy
+        updateRadioButtons(inputId = "nuts", selected = 1)
+        rv$nuts <- "1"
+        shinyjs::disable(id = "nuts")
+      } else{
+        # However, activate the "nuts" button
+        shinyjs::enable(id = "nuts")
+      }
     })
     
     # If prev slider changes, update condition1
     observeEvent(input$prev, {
-        rv$condition1 <- as.numeric(max(rv$list_output$pred$conditions)) - input$prev * 7
+        rv$condition1 <- max(as.numeric(rv$list_output$pred$conditions)) - input$prev * 7
     })
     
     # In the age box is ticked, update rv$age, which will be used to update the time
     # series plot
     observeEvent(input$age, rv$age <- input$age)
     
+    # In the nuts changes, update rv$nuts, which will be used to update the time
+    # series plot and the map
+    observeEvent(input$nuts, rv$nuts <- input$nuts)
+    
     # If the user clicks on the map in the Forecasts tab, update rv$selected and 
     # rv$region to change the time-series plot
     observeEvent(input$map_click, {
+        rv$new_country <- 0
         # Extract coordinates of clicked point
         coords <- input$map_click
         # Match to rv$list_output$map to identify the region clicked by the user
@@ -77,20 +114,29 @@ shinyServer(function(input, output) {
     observe({
         # Generate the Leaflet map
         output$map <- renderLeaflet({
-            leaflet_inc(pred = rv$list_output$pred, nuts = input$nuts,
-                        map = rv$map, 
+            leaflet_inc(pred = rv$list_output$pred, nuts = rv$nuts,
+                        map = rv$map, type = input$type,
                         pop = rv$list_output$pop, condition = rv$condition1,
                         pop_age = rv$list_output$pop_age, quant = input$quant/100, 
                         region_selected = rv$selected)
         })
         
         # Generate the time-series plot
-        output$preds <- renderPlot({
+        if(rv$new_country == 0){
+          output$preds <- renderPlot({
             generate_figure_ts(pred = rv$list_output$pred, map = rv$list_output$map, 
-                               obs = rv$list_output$obs, nuts = input$nuts, age = rv$age, 
-                               days = input$weeks * 7, prev = input$prev * 7, 
-                               log = input$log, condition = rv$condition1, region = rv$region)
-        })
+                               obs = rv$list_output$obs, max_obs = rv$max_obs, 
+                               nuts = rv$nuts, age = rv$age, days = input$weeks * 7, 
+                               prev = input$prev * 7, type = input$type, log = input$log, 
+                               condition = rv$condition1, region = rv$region)
+          })
+        } else{
+          output$preds <- renderPlot({
+            plot.new()
+            mtext(paste0(strwrap("Click on the map to plot local forecasts; click outside the map to move back to national level forecasts"), collapse = "\n"), 
+                  at = 0.5)
+          })
+        }
         
     })
     
@@ -127,12 +173,12 @@ shinyServer(function(input, output) {
         
     })
     
-    # If the button input$type is changed, update rv$type_map, which will be 
+    # If the button input$type_map is changed, update rv$type_map, which will be 
     # used to generate the first map in Predictors tab
-    observeEvent(input$type, {
-        if(input$type == 1) rv$type_map <- "incidence"
-        if(input$type == 2) rv$type_map <- "cases"
-        if(input$type == 3) rv$type_map <- "changes"
+    observeEvent(input$type_map, {
+        if(input$type_map == 1) rv$type_map <- "incidence"
+        if(input$type_map == 2) rv$type_map <- "cases"
+        if(input$type_map == 3) rv$type_map <- "changes"
     })
     
     # If the button input$type is changed, update rv$reg_groups_nuts and rv$map_group
@@ -188,6 +234,8 @@ shinyServer(function(input, output) {
     observeEvent(input$country3,{
         # Set rv$selected2 to NULL (may be changed later by clicking on the map)
         rv$selected2 <- NULL
+        
+        rv$new_country2 <- 1
         if(input$country3 == 1){
             # If country is France, update region3, country3 and list_output3
             rv$list_output3 <- list_output_FR
@@ -220,8 +268,41 @@ shinyServer(function(input, output) {
             shinyjs::enable(id = "age2")
             shinyjs::enable(id = "target")
         }
+        if(input$type3 == 2){
+          # Deactivate the "nuts" checkbox, and set it to "nuts 2 (coarse)", since 
+          # nuts3 death data is not available
+          updateRadioButtons(inputId = "nuts3", selected = 1)
+          rv$nuts <- 1
+          shinyjs::disable(id = "nuts3")
+        } else{
+          # Otherwise, activate the "nuts" button
+          shinyjs::enable(id = "nuts3")
+        }
+        
+        # Define the variables map3 and max_obs3
         rv$map3 <- rv$list_output3$map[rv$list_output3$map$LEVL_CODE == 3,]
+        rv$max_obs3 <- as.Date(max(epoch(rv$list_output3$obs)), origin = "1970-01-01")
+        # Add data_death to list_output3$obs
+        rv$list_output3$obs <- list(rv$list_output3$obs, rv$list_output3$data_death)
     })
+    
+    # If type changes, update nuts
+    observeEvent(input$type3, {
+      if(input$type3 == 2){
+        # Deactivate the "nuts" checkbox, and set it to "nuts 2 (coarse)", since 
+        # nuts3 death data is not available in Italy
+        updateRadioButtons(inputId = "nuts3", selected = 1)
+        rv$nuts3 <- "1"
+        shinyjs::disable(id = "nuts3")
+      } else{
+        # Otherwise, activate the "nuts" button
+        shinyjs::enable(id = "nuts3")
+      }
+    })
+    
+    # In the nuts changes, update rv$nuts3, which will be used to update the time
+    # series plot and the map
+    observeEvent(input$nuts3, rv$nuts3 <- input$nuts3)
     
     # In the age box is ticked, update rv$age2, which will be used to update the time
     # series plot
@@ -270,6 +351,8 @@ shinyServer(function(input, output) {
     # If the user clicks on the map in the Scenarios tab, update rv$selected and
     # rv$region to change the time-series plot
     observeEvent(input$map3_click, {
+        rv$new_country2 <- 0
+        
         isolate({
             # Extract coordinates of clicked point
             coords <- input$map3_click
@@ -289,18 +372,26 @@ shinyServer(function(input, output) {
     observe({
         # Generate the Leaflet map
         output$map3 <- renderLeaflet({
-            leaflet_inc(pred = rv$list_output3$scenario, nuts = input$nuts3,
-                        map = rv$map3, pop = rv$list_output3$pop, 
+            leaflet_inc(pred = rv$list_output3$scenario, nuts = rv$nuts3,
+                        map = rv$map3, pop = rv$list_output3$pop, type = input$type3,
                         condition = rv$condition2, pop_age = rv$list_output3$pop_age, 
                         quant = input$quant3/100, region_selected = rv$selected2)
         })
         
         # Generate the time-series plot
-        output$preds2 <- renderPlot({
-            generate_figure_ts(pred = rv$list_output3$scenario, map = rv$list_output3$map, 
-                               obs = rv$list_output3$obs, nuts = input$nuts3, 
+        if(rv$new_country2 == 0){
+          output$preds2 <- renderPlot({
+            generate_figure_ts(pred = rv$list_output3$scenario, max_obs = rv$max_obs3, map = rv$list_output3$map, 
+                               obs = rv$list_output3$obs, nuts = rv$nuts3, type = input$type3,
                                age = rv$age2, days = input$weeks2 * 7, prev = 0, 
                                log = input$log2, condition = rv$condition2, region = rv$region3)
-        })
+          })
+        } else{
+          output$preds2 <- renderPlot({
+            plot.new()
+            mtext(paste0(strwrap("Click on the map to plot local forecasts; click outside the map to move back to national level forecasts"), collapse = "\n"), 
+                  at = 0.5)
+          })
+        }
     })
 })

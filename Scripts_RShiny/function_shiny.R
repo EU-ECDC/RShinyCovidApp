@@ -65,7 +65,7 @@ figure_inc <- function(pred, nuts, age, map, pop, pop_age, obs, quant = .5, type
       region = pred_f$reg, 
       q_inc = (pred_f$n_cases / 2 - aggreg_weekly[pred_f$reg]) * 100 / aggreg_weekly[pred_f$reg]
     )
-    title_map <- "Changes compared to the last week of data"
+    title_map <- "Change in cases compared to the last week of data"
   }
   
   # Define vector containing the incidence in each region
@@ -94,7 +94,7 @@ figure_inc <- function(pred, nuts, age, map, pop, pop_age, obs, quant = .5, type
     map$inc_cat <- cut(map$inc, breaks = inc_breaks, 
                        labels = c("0-50", "50-100", "100-500", 
                                   "500-1,000", "1,000-2,500", ">2,500"))
-    lab_main <- "Average 14-day incidence per 100,000 hab."
+    lab_main <- "Average 14-day case incidence per 100,000 hab."
   } 
   if(type == "cases"){
     # Define breaks and add discrete column to map
@@ -109,7 +109,7 @@ figure_inc <- function(pred, nuts, age, map, pop, pop_age, obs, quant = .5, type
                          labels = c("0-100", "100-1,000", "1,000-5,000", 
                                     "5,000-10,000", "10,000-50,000", ">50,000"))
     }
-    lab_main <- "14-day average number of cases"
+    lab_main <- "14-day average case number predicted"
   }
   if(type == "changes"){
     # Define breaks and add discrete column to map
@@ -117,7 +117,7 @@ figure_inc <- function(pred, nuts, age, map, pop, pop_age, obs, quant = .5, type
     map$inc_cat <- cut(map$inc, breaks = inc_breaks, 
                        labels = c("-100% - -50%", "-50% - -10%", "-10% - 0%", 
                                   "0% - 10%", "10% - 50%", "50% - 100%"))
-    lab_main <- "Average change compared to last week of data"
+    lab_main <- "Average change in cases compared to the last week of data"
   }
   # Set colour scheme
   cols_vect <- c("#2c7bb6", "#67a9cf", "#e0f3f8", "#ffffbf", "#fee090", "#fdae61")
@@ -229,7 +229,7 @@ plot_predictor <- function(predictor, group_reg, map, pop, pop_age, type, group_
 }
 
 # Function to generate interactive map showing the incidence in each region (Forecasts and Scenario tabs)
-leaflet_inc <- function(pred, nuts, map, pop, pop_age, condition, quant = .5, region_selected = NULL){
+leaflet_inc <- function(pred, nuts, map, pop, pop_age, condition, type, quant = .5, region_selected = NULL){
   # Select the rows of pred that correspond to the condition specified by the user.
   pred <- pred[pred$conditions == condition, ]
   if(nuts == 1) {
@@ -265,12 +265,19 @@ leaflet_inc <- function(pred, nuts, map, pop, pop_age, condition, quant = .5, re
   vec_pop <- pop_per_region$x
   names(vec_pop) <- pop_per_region$Group.1
   
-  # Compute the incidence per region by dividing the number of cases by the number of 
-  # inhabitants
-  incidence_per_region <- cbind.data.frame(
-    region = pred_f$reg, 
-    q_inc = pred_f$n_cases / vec_pop[pred_f$reg]
-  )
+  # Compute the incidence per region by dividing the number of cases (or death) 
+  # by the number of inhabitants
+  if(type == 1){
+    incidence_per_region <- cbind.data.frame(
+      region = pred_f$reg, 
+      q_inc = pred_f$n_cases / vec_pop[pred_f$reg]
+    )
+  } else {
+    incidence_per_region <- cbind.data.frame(
+      region = pred_f$reg, 
+      q_inc = pred_f$n_deaths / vec_pop[pred_f$reg]
+    )
+  }
   
   # Define vector containing the incidence in each region
   vec_inc <- incidence_per_region$q_inc
@@ -292,10 +299,18 @@ leaflet_inc <- function(pred, nuts, map, pop, pop_age, condition, quant = .5, re
   }
   
   # Generate discrete variable and add it to map
-  inc_breaks <- c(0, 50, 100, 500, 1000, 2500, max(c(10000, map$inc)))
-  map$inc_cat <- cut(map$inc, breaks = inc_breaks, 
-                     labels = c("0-50", "50-100", "100-500", 
-                                "500-1,000", "1,000-2,500", ">2,500"))
+  if(type == 1){
+    inc_breaks <- c(0, 50, 100, 500, 1000, 2500, max(c(10000, map$inc)))
+    inc_labs <- c("0-50", "50-100", "100-500", "500-1,000", "1,000-2,500", ">2,500")
+    title_map <- "Average 14-day case incidence <br>per 100,000 hab."
+  } else {
+    inc_breaks <- c(-1, .5, 1, 5, 10, 25, max(c(100, map$inc)))
+    inc_labs <- c("0-0.5", "0.5-1", "1-5", "5-10", "10-25", ">25")
+    title_map <- "Average 14-day death incidence <br>per 100,000 hab."
+  }
+  
+  map$inc_cat <- cut(map$inc, breaks = inc_breaks, labels = inc_labs)
+  
   # Define colour scheme
   cols_vect <- c("#2c7bb6", "#67a9cf", "#e0f3f8", "#ffffbf", "#fee090", "#fdae61")
   factpal <- colorFactor(cols_vect, map$inc_cat)
@@ -319,44 +334,70 @@ leaflet_inc <- function(pred, nuts, map, pop, pop_age, condition, quant = .5, re
            addPolygons(stroke = TRUE, fillColor = ~factpal(inc_cat), fillOpacity = 1, 
                        color = ~selected, weight = ~weight) %>% 
            addLegend("bottomright", pal = factpal, values = ~map$inc_cat,
-                     title = "Average 14-day incidence <br>per 100,000 hab.", 
-                     opacity = 1
+                     title = title_map, opacity = 1
            )
   )
 }
 
 # Function to generate the time-series plot (Forecasts and Scenario tabs)
-plot_time_series <- function(pred, age, reg, stsobj, reg_groups, condition, name_reg, log = F, nb_obs = 14, prev = 0){
-  # Extract case data from stsobj
-  obs <- stsobj@observed
-  last_t_obs <- nrow(obs)
-  
+plot_time_series <- function(pred, age, reg, obs, reg_groups, condition, name_reg, 
+                             max_obs, type, log = F, nb_obs = 14, prev = 0){
   # Select the rows of pred that correspond to the condition specified by the user.
   pred <- pred[pred$conditions == condition, ]
   
-  # Compute the prediction dates (t_pred + 1:28)
-  date_pred <- as.Date(max(epoch(stsobj)) + as.numeric(unique(pred[!is.na(pred$t),]$t)) - nrow(obs),
-                       origin = "1970-01-01")
-  # Last observation date
-  max_obs <- as.Date(max(epoch(stsobj)), origin = "1970-01-01")
-  # First date of prediction
-  min_pred <- min(date_pred) - 1
+  if(type == 1){ 
+    # Compute the prediction dates (t_pred + 1:28)
+    date_pred <- max_obs + as.numeric(unique(pred[!is.na(pred$t),]$t)) - nrow(obs[[1]])
+    # All observation dates
+    date_obs <- max_obs - rev(seq_len(nb_obs) - 1)
+    obs <- obs[[1]]@observed
+    # First date of prediction
+    min_pred <- min(date_pred) - 1
+  } else{
+    # Compute the prediction dates (t_pred + 1:28)
+    date_pred <- max_obs + as.numeric(unique(pred[!is.na(pred$t) & !is.na(pred$n_deaths),]$t)) - 
+      nrow(obs[[1]])
+    
+    # min_date <- min(as.Date(epoch(obs[[1]]), origin = "1970-01-01"))
+    min_date <- min(max_obs - nb_obs)
+    obs <- obs[[2]][rownames(obs[[2]]) >= min_date,]
+    
+    # All observation dates
+    date_obs <- as.Date(rownames(obs))
+    nb_obs <- nrow(obs)
+    # First date of prediction
+    min_pred <- min(date_pred) - 7
+    # Number of previous days:
+    prev <- prev/7
+  }
+  last_t_obs <- nrow(obs)
   date_pred <- c(min_pred, date_pred)
-  # All observation dates
-  date_obs <- max_obs - rev(seq_len(nb_obs) - 1)
   # Define all dates included in the plot
   all_dates <- c(date_obs, date_pred)
   
   if(age == FALSE){
-    # If there is no age stratification, select the entries where age == "tot" and 
-    # type == "daily_cases"
-    pred_f <- pred[pred$reg == reg & pred$type == "daily_cases" & pred$age == "tot",]
-    # Compute the median and prediction intervals of the forecasts (50 and 95%)
-    quants <- rbind(
-      pred_f[pred_f$quant == "2.5%",]$n_cases, pred_f[pred_f$quant == "25%",]$n_cases,
-      pred_f[pred_f$quant == "50%",]$n_cases, pred_f[pred_f$quant == "75%",]$n_cases,
-      pred_f[pred_f$quant == "97.5%",]$n_cases
-    )
+    if(type == 1){ 
+      # If there is no age stratification, select the entries where age == "tot" and 
+      # type == "daily_cases"
+      pred_f <- pred[pred$reg == reg & pred$type == "daily_cases" & pred$age == "tot",]
+      # Compute the median and prediction intervals of the forecasts (50 and 95%)
+      quants <- rbind(
+        pred_f[pred_f$quant == "2.5%",]$n_cases, pred_f[pred_f$quant == "25%",]$n_cases,
+        pred_f[pred_f$quant == "50%",]$n_cases, pred_f[pred_f$quant == "75%",]$n_cases,
+        pred_f[pred_f$quant == "97.5%",]$n_cases
+      )
+    } else {
+      # If there is no age stratification, select the entries where age == "tot", 
+      # type == "daily_cases", and n_deaths is not NA
+      pred_f <- pred[pred$reg == reg & pred$type == "daily_cases" & pred$age == "tot" &
+                       !is.na(pred$n_deaths),]
+      # Compute the median and prediction intervals of the forecasts (50 and 95%)
+      quants <- rbind(
+        pred_f[pred_f$quant == "2.5%",]$n_deaths, pred_f[pred_f$quant == "25%",]$n_deaths,
+        pred_f[pred_f$quant == "50%",]$n_deaths, pred_f[pred_f$quant == "75%",]$n_deaths,
+        pred_f[pred_f$quant == "97.5%",]$n_deaths
+      )
+    }
     # Define the vector of observed values (prior to the date of prediction)
     if(sum(!is.na(reg_groups)) > 1) obs_cases <- rowSums(obs[last_t_obs - rev(seq_len(nb_obs) - 1), !is.na(reg_groups)])
     if(sum(!is.na(reg_groups)) == 1) obs_cases <- obs[last_t_obs - rev(seq_len(nb_obs) - 1), !is.na(reg_groups)]
@@ -369,9 +410,13 @@ plot_time_series <- function(pred, age, reg, stsobj, reg_groups, condition, name
     ymin <- min(quants)
     # Which entries of quants should be plotted (depending on input$prev)
     val_pred <- c(nb_obs - prev, seq_len(ncol(quants))[-seq_len(nb_obs)])
+    
+    # Compute ylim
+    ylim_plot <- c(ifelse(log, max(1,ymin * .9), 0), ymax * 1.2)
+    if(all(quants < 5)) ylim_plot <- c(0, 5)
     # Plot median forecasts
     plot(c(NA, quants[3, val_pred]) ~ c(min(all_dates), date_pred), col = "darkred", type = "l", 
-         log = ifelse(log, "y", ""), ylim = c(ifelse(log, max(1,ymin * .9), 0), ymax * 1.2), 
+         log = ifelse(log, "y", ""), ylim = ylim_plot, 
          xlab = "", ylab = "", xlim = c(min(all_dates), max(all_dates)))
     # Add data points
     if(nb_obs > 0) points(quants[3, seq_len(nb_obs)] ~ date_obs, pch = 16, type = "b")
@@ -402,13 +447,23 @@ plot_time_series <- function(pred, age, reg, stsobj, reg_groups, condition, name
       reg <- sub("[:].*", "", i)
       age <- sub(".*[: ]", "", i)
       cols <- which(reg_groups == i)
-      pred_f <- pred[pred$reg == reg & pred$age == age & pred$type == "daily_cases",]
       # Compute the median and prediction intervals of the forecasts (50 and 95%)
-      quants <- rbind(
-        pred_f[pred_f$quant == "2.5%",]$n_cases, pred_f[pred_f$quant == "25%",]$n_cases,
-        pred_f[pred_f$quant == "50%",]$n_cases, pred_f[pred_f$quant == "75%",]$n_cases,
-        pred_f[pred_f$quant == "97.5%",]$n_cases
-      )
+      if(type == 1){ 
+        pred_f <- pred[pred$reg == reg & pred$age == age & pred$type == "daily_cases",]
+        quants <- rbind(
+          pred_f[pred_f$quant == "2.5%",]$n_cases, pred_f[pred_f$quant == "25%",]$n_cases,
+          pred_f[pred_f$quant == "50%",]$n_cases, pred_f[pred_f$quant == "75%",]$n_cases,
+          pred_f[pred_f$quant == "97.5%",]$n_cases
+        )
+      } else {
+        pred_f <- pred[pred$reg == reg & pred$age == age & pred$type == "daily_cases" &
+                         !is.na(pred$n_deaths),]
+        quants <- rbind(
+          pred_f[pred_f$quant == "2.5%",]$n_deaths, pred_f[pred_f$quant == "25%",]$n_deaths,
+          pred_f[pred_f$quant == "50%",]$n_deaths, pred_f[pred_f$quant == "75%",]$n_deaths,
+          pred_f[pred_f$quant == "97.5%",]$n_deaths
+        )
+      }
       
       
       if(log) quants[quants == 0] <- .1
@@ -425,9 +480,13 @@ plot_time_series <- function(pred, age, reg, stsobj, reg_groups, condition, name
       # Which entries of quants should be plotted (depending on input$prev)
       val_pred <- c(nb_obs - prev, seq_len(ncol(quants))[-seq_len(nb_obs)])
       
+      # Compute ylim
+      ylim_plot <- c(ifelse(log, max(1,ymin * .9), 0), ymax * 1.2)
+      if(all(quants < 5)) ylim_plot <- c(0, 5)
+      
       # Plot median forecasts
       plot(quants[3, val_pred] ~ date_pred, col = "darkred", type = "l", 
-           log = ifelse(log, "y", ""), ylim = c(ifelse(log, max(1,ymin * .9), 0), ymax * 1.2), 
+           log = ifelse(log, "y", ""), ylim = ylim_plot, 
            xlab = "", ylab = "", xlim = c(min(all_dates), max(all_dates)))
       # Add data points
       if(nb_obs > 0) points(quants[3, seq_len(nb_obs)] ~ date_obs, pch = 16, type = "b")
@@ -456,6 +515,12 @@ plot_time_series <- function(pred, age, reg, stsobj, reg_groups, condition, name
   }
   
   # Add axis labels
-  title(ylab = "Number of daily cases", line = 0, outer = T)
-  title(xlab = "Time (Days)", line = 0, outer = T)
+  if(type == 1){
+    title(ylab = "Number of daily cases", line = 0, outer = T)
+    title(xlab = "Time (Days)", line = 0, outer = T)
+  }
+  if(type == 2){
+    title(ylab = "Number of weekly deaths", line = 0, outer = T)
+    title(xlab = "Time (Weeks)", line = 0, outer = T)
+  }
 }
