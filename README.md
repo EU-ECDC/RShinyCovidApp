@@ -1,5 +1,3 @@
-The analysis, code, Shiny App and model were developed and implemented by Alexis Robert, Lloyd Chapman, Adam Kucharski, and Sebastian Funk (Centre for Mathematical Modelling of Infectious Diseases, London School and Hygiene and Tropical Medicine), and Bastian Prasse, Frank Sandmann, Rene Niehus, and Rok Grah (ECDC)
-
 # RShiny App: Analysis of subnational COVID-19 outbreak risk in the EU/EEA in the vaccine era
 
 To run the Shiny app locally, install the `shiny` package, set the working directory to this repository, and run `shiny::runApp("Scripts_RShiny/")`. You will need to have the packages listed in the first lines of `ui.R` (`shiny`, `leaflet`, `dplyr`, `sf`, `ggplot2`, and `surveillance`) installed on your computer. 
@@ -12,3 +10,7 @@ This repository contains four R scripts and three data files (all located in the
 * `Scripts_RShiny/server.R` defines the server logic of the shiny app, i.e it links changes in the user interface to the functions implemented in `function_shiny.R` and `function_server.R`.
 * `Scripts_RShiny/function_shiny.R` contains the different functions used to generate the figures integrated in the Shiny app.
 * `Scripts_RShiny/function_server.R`: contains a function wrapping `plot_time_series()` depending on the selected inputs.
+
+## Authors
+* Alexis Robert: <alexis.robert@lshtm.ac.uk>
+* Lloyd Chapman: <l.chapman4@lancaster.ac.uk>

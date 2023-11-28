@@ -1,6 +1,7 @@
 # Import libraries:
 library(shiny)
 library(leaflet)
+library(data.table)
 library(dplyr)
 library(sf)
 library(ggplot2)
@@ -40,7 +41,7 @@ shinyUI(fluidPage(
                  hr(),
                  
                  HTML("<p>Use the control widgets below to change the country, forecast type (cases/deaths), geographical resolution, and format of the plots. 
-                      Check our <a href='https://github.com/alxsrobert/RShiny_covid_ECDC/raw/main/RShiny%20App%20user%20guide.pdf'>
+                      Check our <a href='https://github.com/EU-ECDC/RShinyCovidApp/raw/main/RShiny%20App%20user%20guide.pdf'>
                       user guide</a> for more details </p>"),
                  # Set of inputs:
                  fluidRow(column(3, offset = 1, 
@@ -48,7 +49,7 @@ shinyUI(fluidPage(
                                  selectInput("country", "Country", 
                                              choices = list("Czechia" = 2, "France" = 1, "Italy" = 3), 
                                              selected = 2),
-                                 # Should the time-series be age-stratied (default = no)
+                                 # Should the time-series be age-stratified (default = no)
                                  checkboxInput("age", "Plot age-stratified forecasts", value = FALSE),
                                  # Should the y-axis of the time series be log-scale (default = no)
                                  checkboxInput("log", "Use logarithmic y-axis in the time-series plot", value = FALSE)),
@@ -87,7 +88,7 @@ shinyUI(fluidPage(
                  h4("Latest forecasted COVID-19 case incidence; Local risks of onwards transmission and importation"),
                  
                  HTML("<p>Use the control widgets below to change the country, geographical resolution, and format of the maps.  
-                      Check our <a href='https://github.com/alxsrobert/RShiny_covid_ECDC/raw/main/RShiny%20App%20user%20guide.pdf'>
+                      Check our <a href='https://github.com/EU-ECDC/RShinyCovidApp/raw/main/RShiny%20App%20user%20guide.pdf'>
                       user guide</a> for more details </p>"),
                  # Set of inputs:
                  sidebarLayout(
@@ -139,14 +140,14 @@ shinyUI(fluidPage(
                  hr(),
                  
                  HTML("<p>Use the control widgets below to change the country, forecast type (cases/deaths), geographical resolution, format of the plots and level of transmission.
-                      Check our <a href='https://github.com/alxsrobert/RShiny_covid_ECDC/raw/main/RShiny%20App%20user%20guide.pdf'>
+                      Check our <a href='https://github.com/EU-ECDC/RShinyCovidApp/raw/main/RShiny%20App%20user%20guide.pdf'>
                       user guide</a> for more details </p>"),
                  # Set of inputs:
                  fluidRow(column(3, offset = 1, 
                                  # Which country is to be plotted (default = France)
                                  selectInput("country3", "Country", 
                                              choices = list("Czechia" = 2, "France" = 1, "Italy" = 3), selected = 2),
-                                 # Should the time-series be age-stratied (default = no)
+                                 # Should the time-series be age-stratified (default = no)
                                  checkboxInput("age2", "Plot age-stratified forecasts", value = FALSE),
                                  # Should the y-axis of the time series be log-scale (default = no)
                                  checkboxInput("log2", "Use logarithmic y-axis in the time-series plot", value = FALSE),
@@ -181,7 +182,7 @@ shinyUI(fluidPage(
                                  checkboxInput("import", "Remove importations from outside the selected country", value = F, width = "100%"),
                                  # What is the delay until NPIs become effective (Default = One week)
                                  radioButtons("delay", "Date of NPIs becoming effective", 
-                                              choices = list("One week delay" = 1, "Two week delay" = 2), 
+                                              choices = list("One week delay" = 1), 
                                               selected = 1, inline = T)
                           )),
                  
@@ -195,7 +196,61 @@ shinyUI(fluidPage(
                  adherence, that are not explicitly incorporated in our model."),
                  p(class = "smaller--p", "Administrative boundaries, \u00A9 EuroGeographics, \u00A9 TurkStat. Source: European Commission - Eurostat/GISCO,
                    The boundaries and names shown on this map do not imply official endorsement or acceptance by the European Union"),
+        ),
+        # Fourth Panel: Paper
+        tabPanel("Replicate calibration", fluid = TRUE,
+                 # Tab title
+                 h4("Forecasted COVID-19 incidence over the calibration period (29 October 2022 to 22 April 2023)"),
+                 
+                 p("Click on the map to plot local forecasts; click outside the map to move back to national level forecasts"),
+                 # Outputs of this panel = Incidence map and time series 
+                 fluidRow(column(10, offset = 1,
+                                 splitLayout(cellWidths = c("33%", "67%"),
+                                             leafletOutput("map4", height = "300px"),
+                                             plotOutput("preds3", height = "300px")
+                                 )
+                 )),
+                 
+                 
+                 hr(),
+                 
+                 HTML("<p>Use the control widgets below to change the country, forecast type (cases/deaths), geographical resolution, and format of the plots. 
+                      Check our <a href='https://github.com/EU-ECDC/RShinyCovidApp/raw/main/RShiny%20App%20user%20guide.pdf'>
+                      user guide</a> for more details </p>"),
+                 # Set of inputs:
+                 fluidRow(column(3, offset = 1, 
+                                 # Which country is to be plotted (default = France)
+                                 selectInput("country4", "Country", 
+                                             choices = list("Czechia" = 2, "France" = 1, "Italy" = 3), 
+                                             selected = 2),
+                                 # Should the time-series be age-stratified (default = no)
+                                 checkboxInput("age3", "Plot age-stratified forecasts", value = FALSE),
+                                 # Should the y-axis of the time series be log-scale (default = no)
+                                 checkboxInput("log3", "Use logarithmic y-axis in the time-series plot", value = FALSE)),
+                          column(4,
+                                 # Show severe outcomes or cases
+                                 radioButtons("type4", "Type of forecasts",
+                                              choices = list("Case forecasts" = 1, "Death forecasts" = 2),
+                                              selected = 1, inline = T),
+                                 # What Geographical resolution should be plotted (default = Fine (NUTS-3))
+                                 radioButtons("nuts4", "Geographical resolution",
+                                              choices = list("Coarse (NUTS-1 / NUTS-2)" = 1, "Fine (NUTS-3)" = 2),
+                                              selected = 2, inline = T)),
+                          column(3,
+                                 # How many data points should be visible in the time series (default 28 days)
+                                 radioButtons("n_week", "Forecast horizon:", 
+                                              choices = list("One week" = 1, "Two weeks" = 2, 
+                                                             "Three weeks" = 3, "Four weeks" = 4), 
+                                              width = "100%", selected = 1, inline = T),
+                          )),
+                 p(class = "smaller--p", "NUTS = Nomenclature of Territorial Units for Statistics"),
+                 p(class = "smaller--p", 
+                   "Age-stratified forecasts were not generated for Italy because subnational age-stratified surveillance data were not available"),
+                 p(class = "smaller--p", "Large daily variations in the case forecasts are due to a day-of-the-week effect in the reported data (e.g. fewer cases are reported on Sundays)"),
+                 p(class = "smaller--p", "Administrative boundaries, \u00A9 EuroGeographics, \u00A9 TurkStat. Source: European Commission - Eurostat/GISCO, 
+                   The boundaries and names shown on this map do not imply official endorsement or acceptance by the European Union"),
         )
+        
         
     )
 ))

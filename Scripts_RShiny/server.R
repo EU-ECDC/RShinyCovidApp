@@ -3,6 +3,8 @@ list_output_IT <- readRDS("output_model_IT_total.RDS")
 list_output_FR <- readRDS("output_model_FR.RDS")
 list_output_CZ <- readRDS("output_model_CZ.RDS")
 
+calib <- readRDS("all_calib_countries.rds")
+
 # Import functions to generate plots
 source("function_shiny.R")
 source("function_server.R")
@@ -12,6 +14,7 @@ shinyServer(function(input, output) {
     rv <- reactiveValues()
     rv$new_country <- 1
     rv$new_country2 <- 1
+    rv$new_country3 <- 1
     
     ## Observe Events in Forecasts tab
     # If country entry changes in the Forecasts tab, change rv$list_output, rv$region, 
@@ -394,4 +397,138 @@ shinyServer(function(input, output) {
           })
         }
     })
+    
+    
+    
+    
+    ## Observe Events in replicate paper tab
+    # If country entry changes in the replicate paper tab, change rv$list_output4, 
+    # rv$region4, rv$country4
+    observeEvent(input$country4,{
+      # Set rv$selected3 to NULL (may be changed later by clicking on the map)
+      rv$selected3 <- NULL
+      
+      rv$new_country3 <- 1
+      if(input$country4 == 1){
+        # If country is France, update region3, country3 and list_output3
+        rv$list_output4 <- calib[[3]]
+        rv$region4 <- rv$country4 <- "FR"
+        rv$map4 <- list_output_FR$map[list_output_FR$map$LEVL_CODE == 3,]
+        rv$pop <- list_output_FR$pop
+        rv$pop_age <- list_output_FR$pop_age
+        shinyjs::enable(id = "age3")
+        # updateCheckboxInput(inputId = "age3", value = TRUE)
+        # rv$age3 <- 1
+        # shinyjs::disable(id = "age3")
+      } else if(input$country4 == 2){
+        # If country is Czechia, update region3, country3 and list_output3
+        rv$list_output4 <- calib[[2]]
+        rv$region4 <- rv$country4 <- "CZ"
+        rv$map4 <- list_output_CZ$map[list_output_CZ$map$LEVL_CODE == 3,]
+        rv$pop <- list_output_CZ$pop
+        rv$pop_age <- list_output_CZ$pop_age
+        shinyjs::enable(id = "age3")
+        # updateCheckboxInput(inputId = "age3", value = TRUE)
+        # rv$age3 <- 1
+        # shinyjs::disable(id = "age3")
+      } else if(input$country4 == 3){
+        # If country is Italy, update region3, country3 and list_output3
+        rv$list_output4 <- calib[[1]]
+        rv$region4 <- rv$country4 <- "IT"
+        # Deactivate the "age2" checkbox and "target" button, 
+        # and set them to "non age stratified" and "Everyone", since 
+        # local age stratified data is not available in Italy
+        updateCheckboxInput(inputId = "age3", value = FALSE)
+        rv$age3 <- 0
+        shinyjs::disable(id = "age3")
+        rv$map4 <- list_output_IT$map[list_output_IT$map$LEVL_CODE == 3,]
+        rv$pop <- list_output_IT$pop
+        rv$pop_age <- list_output_IT$pop_age
+        
+      }
+      if(input$type4 == 2){
+        # Deactivate the "nuts" checkbox, and set it to "nuts 2 (coarse)", since 
+        # nuts4 death data is not available
+        updateRadioButtons(inputId = "nuts4", selected = 1)
+        rv$nuts4 <- 1
+        shinyjs::disable(id = "nuts4")
+      } else{
+        updateRadioButtons(inputId = "nuts4", selected = 2)
+        rv$nuts4 <- "2"
+        shinyjs::disable(id = "nuts4")
+      }
+    })
+    
+    # If type changes, update nuts
+    observeEvent(input$type4, {
+      if(input$type4 == 2){
+        # Deactivate the "nuts" checkbox, and set it to "nuts 2 (coarse)", since 
+        # nuts3 death data is not available in Italy
+        updateRadioButtons(inputId = "nuts4", selected = 1)
+        rv$nuts4 <- "1"
+        shinyjs::disable(id = "nuts")
+      } else{
+        # However, activate the "nuts" button
+        updateRadioButtons(inputId = "nuts4", selected = 2)
+        rv$nuts4 <- "2"
+      }
+    })
+    
+    # In the age box is ticked, update rv$age, which will be used to update the time
+    # series plot
+    observeEvent(input$age3, rv$age3 <- input$age3)
+    
+    # In the nuts changes, update rv$nuts, which will be used to update the time
+    # series plot and the map
+    observeEvent(input$nuts4, rv$nuts4 <- input$nuts4)
+    
+    # If the user clicks on the map in the replicate paper tab, update rv$selected and 
+    # rv$region to change the time-series plot
+    observeEvent(input$map4_click, {
+      rv$new_country3 <- 0
+      # Extract coordinates of clicked point
+      coords <- input$map4_click
+      # Match to rv$list_output$map to identify the region clicked by the user
+      clicked <- st_as_sf(sp::SpatialPoints(matrix(c(coords$lng, coords$lat),nrow = 1)))
+      st_crs(clicked) <- st_crs(rv$map4)
+      region_click <- 
+        st_intersection(clicked, rv$map4)$key
+      
+      # If the user clicked outside the map, set region to country and selected to NULL
+      if(length(region_click) > 0){
+        rv$selected3 <- rv$region4 <- region_click
+      } else {
+        rv$region4 <- rv$country4
+        rv$selected3 <- NULL
+      }
+    })
+    
+    ## Change plots in replicate paper tab
+    observe({
+      # Generate the Leaflet map
+      output$map4 <- renderLeaflet({
+        leaflet_old(calib = rv$list_output4, nuts = rv$nuts4,
+                    map = rv$map4, type = input$type4, pop = rv$pop, 
+                    pop_age = rv$pop_age, n_week = input$n_week, 
+                    region_selected = rv$selected3)
+      })
+      
+      # Generate the time-series plot
+      if(rv$new_country3 == 0){
+        output$preds3 <- renderPlot({
+          generate_ts_old(calib = rv$list_output4, max_obs = rv$max_obs4, map = rv$map4,
+                          nuts = rv$nuts4, age = rv$age3, n_week = input$n_week,
+                          type = input$type4, log = input$log3, region = rv$region4)
+        })
+      } else{
+        output$preds3 <- renderPlot({
+          plot.new()
+          mtext(paste0(strwrap("Click on the map to plot local forecasts; click outside the map to move back to national level forecasts"), collapse = "\n"), 
+                at = 0.5)
+        })
+      }
+      
+    })
+    
+    
 })

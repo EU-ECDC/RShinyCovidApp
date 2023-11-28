@@ -344,7 +344,6 @@ plot_time_series <- function(pred, age, reg, obs, reg_groups, condition, name_re
                              max_obs, type, log = F, nb_obs = 14, prev = 0){
   # Select the rows of pred that correspond to the condition specified by the user.
   pred <- pred[pred$conditions == condition, ]
-  
   if(type == 1){ 
     # Compute the prediction dates (t_pred + 1:28)
     date_pred <- max_obs + as.numeric(unique(pred[!is.na(pred$t),]$t)) - nrow(obs[[1]])
@@ -471,6 +470,7 @@ plot_time_series <- function(pred, age, reg, obs, reg_groups, condition, name_re
       # Define the vector of observed values (prior to the date of prediction)
       if(length(cols) > 1) obs_cases <- rowSums(obs[last_t_obs - rev(seq_len(nb_obs) - 1), cols])
       if(length(cols) == 1) obs_cases <- obs[last_t_obs - rev(seq_len(nb_obs) - 1), cols]
+      
       # Merge obs_cases with quants
       quants <- cbind(matrix(obs_cases, nrow = 5, ncol = length(obs_cases), byrow = T), 
                       quants)
@@ -523,4 +523,259 @@ plot_time_series <- function(pred, age, reg, obs, reg_groups, condition, name_re
     title(ylab = "Number of weekly deaths", line = 0, outer = T)
     title(xlab = "Time (Weeks)", line = 0, outer = T)
   }
+}
+
+# Function to replicate the time-series plots over the calibration period
+plot_ts_old <- function(calib, age, region, obs, log, n_week, reg_groups, name_reg , type){
+  
+  if(type == 1){
+    dt_pred <- calib$calib$q_pred_reg
+  } else {
+    dt_pred <- calib$calib_death$q_pred_reg
+  }
+  if(is.element(region, c("FR", "CZ"))){
+    region <- "tot"
+  }
+  if(region == "IT"){
+    if(type == 1){
+      dt_pred <- calib$calib$q_pred
+    } else {
+      dt_pred <- calib$calib_death$q_pred
+    }
+    dt_pred <- dt_pred[horizon == n_week & quantile %in% c(0.025, 0.25, 0.5, .75, 0.975),]
+  } else dt_pred <- dt_pred[horizon == n_week & sub("[.].*", "", reg) == region, 
+                            .(reg, date, `2.5%`, `25%`, `50%`, `75%`, `97.5%`)]
+  max_date <- max(dt_pred$date)
+  dt_pred <- dt_pred[date <= (max_date - 7 *(n_week - 1))]
+  # Compute the prediction dates 
+  date_pred <- unique(dt_pred$date)
+  date_pred <- date_pred[date_pred < "2023-04-10"]
+  date_obs <- as.character(date_pred + 7 *(n_week - 1))
+  # First date of prediction
+  min_pred <- min(date_pred) - 1
+
+  date_obs <- date_obs[is.element(date_obs, rownames(obs))]
+  
+  if(age == FALSE){
+    if(any(grepl("[.]", dt_pred$reg))) dt_pred <- dt_pred[sub(".*[.]", "", reg) == "tot", ]
+    
+    if(region == "IT"){
+      quants <- rbind(dt_pred[quantile == 0.025, prediction],
+                      dt_pred[quantile == 0.25, prediction],
+                      dt_pred[quantile == 0.5, prediction],
+                      dt_pred[quantile == 0.75, prediction],
+                      dt_pred[quantile == 0.975, prediction])
+    } else {
+      quants <- t(as.matrix(dt_pred[, .(`2.5%`, `25%`, `50%`, `75%`, `97.5%`)]))
+    }
+    
+    quants <- quants[, seq_along(date_pred)]
+    
+    # Define the vector of observed values (prior to the date of prediction)
+    if(sum(!is.na(reg_groups)) > 1) obs_cases <- rowSums(obs[date_obs, !is.na(reg_groups)])
+    if(sum(!is.na(reg_groups)) == 1) obs_cases <- obs[date_obs, !is.na(reg_groups)]
+    
+    ymax <- max(quants)
+    ymin <- min(quants)
+    
+    # Compute ylim
+    ylim_plot <- c(ifelse(log, max(1,ymin * .9), 0), ymax * 1.2)
+    if(all(quants < 5)) ylim_plot <- c(0, 5)
+    # Plot median forecasts
+    plot(quants[3, ] ~ date_pred, col = "darkred", type = "l", 
+         log = ifelse(log, "y", ""), ylim = ylim_plot, 
+         xlab = "", ylab = "", xlim = c(min(date_pred), max(date_pred)))
+    # Add data points
+    points(obs_cases ~ date_pred[seq_along(date_obs)], pch = 16, type = "b")
+    # Plot 95% prediction intervals
+    polygon(x = c(date_pred, rev(date_pred)), col = transp("orange", .3), border = NA,
+            y = c(quants[1, ], rev(quants[5, ])))
+    # Plot 50% prediction intervals
+    polygon(x = c(date_pred, rev(date_pred)), col = transp("orange", .3), border = NA,
+            y = c(quants[2, ], rev(quants[4, ])))
+    
+
+    # Add legend
+    legend("topleft", legend = c("Data", "Median", "50% Pred. Int.", "95% Pred. Int."), 
+           bty = "n", ncol = 2, border = NA, cex = 1.1, 
+           fill = c("black", "darkred", transp("orange", .5), transp("orange", .3)))
+    title(main = paste0("Region plotted: ", name_reg), outer = T, line = -1)
+  } else{
+    # leg is used to avoid adding the legend to every panel, will be set to TRUE
+    # after the legend is defined for the first time 
+    leg <- FALSE
+    
+    for(i in unique(reg_groups[!is.na(reg_groups)])){
+      # Select the entries where age is equal to the ith age group, and type == "daily_cases"
+      reg <- sub("[:].*", "", i)
+      age <- sub(".*[: ]", "", i)
+      cols <- which(reg_groups == i)
+      # Compute the median and prediction intervals of the forecasts (50 and 95%)
+      dt_pred_age <- dt_pred[sub(".*[.]", "", reg) == age, ]
+      
+      quants <- t(as.matrix(dt_pred_age[, .(`2.5%`, `25%`, `50%`, `75%`, `97.5%`)]))
+      
+      if(log) quants[quants == 0] <- .1
+      # Define the vector of observed values (prior to the date of prediction)
+      if(length(cols) > 1) obs_cases <- rowSums(obs[date_obs, cols])
+      if(length(cols) == 1) obs_cases <- obs[date_obs, cols]
+      
+      quants <- quants[, seq_along(date_pred)]
+      
+      ymax <- max(quants)
+      ymin <- min(quants)
+      
+      # Compute ylim
+      ylim_plot <- c(ifelse(log, max(1,ymin * .9), 0), ymax * 1.2)
+      if(all(quants < 5)) ylim_plot <- c(0, 5)
+      
+      # Plot median forecasts
+      plot(quants[3, ] ~ date_pred, col = "darkred", type = "l", 
+           log = ifelse(log, "y", ""), ylim = ylim_plot, 
+           xlab = "", ylab = "", xlim = c(min(date_pred), max(date_pred)))
+      # Add data points
+      points(obs_cases ~ date_pred[seq_along(date_obs)], pch = 16, type = "b")
+      # Plot 95% prediction intervals
+      polygon(x = c(date_pred, rev(date_pred)), col = transp("orange", .3), border = NA,
+              y = c(quants[1, ], rev(quants[5, ])))
+      # Plot 50% prediction intervals
+      polygon(x = c(date_pred, rev(date_pred)), col = transp("orange", .3), border = NA,
+              y = c(quants[2, ], rev(quants[4, ])))
+      
+      # Add legend and title
+      if(leg == FALSE){
+        legend("topleft", legend = c("Data", "Median", "50% Pred. Int.", "95% Pred. Int."), 
+               bty = "n", ncol = 2, border = NA, cex = .8, 
+               fill = c("black", "darkred", transp("orange", .5), transp("orange", .3)))
+        legend("topright", legend = "Prediction date", col = "black", lty = 2,
+               bty = "n", ncol = 1, border = NA, cex = .8)
+        leg <- TRUE
+      }
+      title(main = paste0("Region plotted: ", name_reg, ", ", age, " year-old"))
+      
+    }
+  }
+  
+  # Add axis labels
+  if(type == 1){
+    title(ylab = "Number of daily cases", line = 0, outer = T)
+    title(xlab = "Time (Days)", line = 0, outer = T)
+  }
+  if(type == 2){
+    title(ylab = "Number of weekly deaths", line = 0, outer = T)
+    title(xlab = "Time (Weeks)", line = 0, outer = T)
+  }
+  
+  
+}
+
+# Function to generate the interactive map showing the incidence in each region 
+# over the first week of the calibration period
+leaflet_old <- function(calib, nuts, map, pop, pop_age, type, n_week, region_selected){
+  if(type == 1){
+    pred_per_reg <- calib$calib$q_pred_reg
+  } else if(type == 2){ 
+    pred_per_reg <- calib$calib_death$q_pred_reg
+  }
+  pred_per_reg <- pred_per_reg[, c("date", "horizon", "reg", "50%")]
+  min_date <- min(pred_per_reg$date)
+  pred_per_reg <- pred_per_reg[pred_per_reg$horizon == n_week & pred_per_reg$date == min_date, ]
+  if(any(grepl("[.]", pred_per_reg$reg))){
+    pred_per_reg$age <- sub(".*[.]", "", pred_per_reg$reg)
+    pred_per_reg$reg <- sub("[.].*", "", pred_per_reg$reg)
+    pred_per_reg <- pred_per_reg[age == "tot",]
+    
+  }
+  pred_per_reg <- pred_per_reg[reg != "tot",]
+  
+  if(nuts == 1) {
+    # If nuts-2 is selected, the way to extract region names depends on the selected country
+    if(substr(colnames(pop), 1, 2)[1] == "FR"){
+      group_reg <- substr(colnames(pop), 4, 6)
+      group_map <- substr(map$key, start = 4, stop = 6)
+    } else if(substr(colnames(pop), 1, 2)[1] == "CZ"){
+      group_reg <- substr(colnames(pop), 4, 4)
+      group_map <- substr(map$key, start = 4, stop = 4)
+    } else if(substr(colnames(pop), 1, 2)[1] == "IT"){
+      group_reg <- substr(colnames(pop), 1, 4)
+      group_map <- substr(map$key, start = 1, stop = 4)
+    }
+    names(group_map) <- map$key
+  } else if(nuts == 2){
+    group_reg <- sub("[.].*", "", colnames(pop))
+    group_map <- NULL
+  }
+
+  # Compute the number of inhabitants per region and age groups, and merge it by region
+  pop_per_entry <- pop[1,] * pop_age[1,]
+  pop_per_region <- aggregate(pop_per_entry, list(group_reg), sum)
+  # Define vec_pop, which contains the number of inhabitants per region
+  vec_pop <- pop_per_region$x
+  names(vec_pop) <- pop_per_region$Group.1
+  
+  # Compute the incidence per region by dividing the number of cases (or death)
+  # by the number of inhabitants
+  incidence_per_region <- cbind.data.frame(
+    region = pred_per_reg$reg,
+    q_inc = pred_per_reg$`50%` / vec_pop[pred_per_reg$reg]
+  )
+
+  # Define vector containing the incidence in each region
+  vec_inc <- incidence_per_region$q_inc
+  names(vec_inc) <- incidence_per_region$region
+  if(is.null(group_map)){
+    # If group_map is not specified, region names is matched to map$key
+    if(any(!is.element(incidence_per_region$region, map$key)))
+      stop("If the aggregation names are not map$key, use the argument group_map to set the correspondence between map$key and group_reg")
+    # Add incidence to map
+    map$inc <- vec_inc[map$key]
+  } else {
+    # Add region column to map, which are then be matched with incidence_per_region$region
+    map$region <- group_map[map$key]
+    # Group NUTS-3 regions into NUTS-2 areas
+    map <- map %>% group_by(region) %>% summarise()
+
+    map$inc <- vec_inc[map$region]
+  }
+
+  # # Generate discrete variable and add it to map
+  if(type == 1){
+    inc_breaks <- c(0, 5, 10, 50, 100, 250, 500, max(c(1000, map$inc)))
+    inc_labs <- c("0-5", "5-10", "10-50", "50-100", "100-250", "250-500", ">500")
+    title_map <- "Average 7-day case incidence <br>per 100,000 hab."
+  } else {
+    inc_breaks <- c(-1, .1, .5, 1, 5, 10, max(c(100, map$inc)))
+    inc_labs <- c("0-0.1", "0.1-0.5", "0.5-1", "1-5", "5-10", ">10")
+    title_map <- "Average 7-day death incidence <br>per 100,000 hab."
+  }
+  # 
+  map$inc_cat <- cut(map$inc, breaks = inc_breaks, labels = inc_labs)
+
+  # Define colour scheme
+  cols_vect <- c("#2c7bb6", "#67a9cf", "#e0f3f8", "#ffffbf", "#fee090", "#fdae61")
+  factpal <- colorFactor(cols_vect, map$inc_cat)
+  map$selected <- "black"
+    map$weight <- 1
+
+    # If a region is selected, the region is highlighted in red on the map
+    if(!is.null(region_selected) & nuts == 2){
+      map[map$key == region_selected,]$selected <- "red"
+        map[map$key == region_selected,]$weight <- 3
+    } else if(!is.null(region_selected)){
+      if(substr(region_selected, 1, 2)[1] == "FR") region_selected <- substr(region_selected, 4, 6)
+      if(substr(region_selected, 1, 2)[1] == "CZ") region_selected <- substr(region_selected, 4, 4)
+      if(substr(region_selected, 1, 2)[1] == "IT") region_selected <- substr(region_selected, 1, 4)
+
+      map[map$region == region_selected,]$selected <- "red"
+        map[map$region == region_selected,]$weight <- 3
+    }
+    # Plot the map
+    return(leaflet(map, options = leafletOptions(doubleClickZoom= FALSE)) %>%
+             addPolygons(stroke = TRUE, fillColor = ~factpal(inc_cat), fillOpacity = 1,
+                         color = ~selected, weight = ~weight) %>%
+             addLegend("bottomright", pal = factpal, values = ~map$inc_cat,
+                       title = title_map, opacity = 1
+             )
+    )
+    
 }
